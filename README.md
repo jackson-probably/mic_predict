@@ -8,7 +8,7 @@ This pipeline is built to be minimal, and can be modified however you want! The 
 
 This pipeline was built in WSL, and requires Python
 
-##General Workflow
+## General Workflow
 - Use run_kmc.sh to generate txt files containing kmers from each genome provided
 - generate_dataframe.py can then be used to combine kmers with each genome as a row and each unique kmer as a column with its corresponding value for each genome
 - model.py will run the model, adjust the model parameters as you see fit based on your experimental needs 
