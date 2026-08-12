@@ -116,3 +116,19 @@ for col in antibiotic_cols
         )
 
         w1_abx = np.mean(within_factor_sub) * 100
+
+#Finally, you can extract the shap metrics!! Helpful for understanding which features are impacting the model, and in which direction !
+import shap
+
+explainer = shap.TreeExplainer(model)
+shap_values = explainer.shap_values(X_train)
+
+shap_df = pd.DataFrame(shap_values, columns=X_train.columns)
+
+mean_shap = shap_df.mean().sort_values(ascending=False)
+top_positive = mean_shap.head(20)
+top_negative = mean_shap.tail(20)
+shap.summary_plot(shap_values, X_train)
+
+
+
