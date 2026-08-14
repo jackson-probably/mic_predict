@@ -1,11 +1,8 @@
-###Hi my name is jackson and I wrote this code to model MICs using genomic features (kmers)
-###If you find it useful please let me know! It took me a long time lmao
-###Much of this code was adapted from our collaborator Marcus Nguyen https://github.com/Tinyman392/GenomicModelCreator
+### Hi my name is jackson and I wrote this code to model MICs using genomic features (kmers)
+### If you find it useful please let me know! It took me a long time lmao
+### Parts of this code were adapted from our collaborator Marcus Nguyen https://github.com/Tinyman392/GenomicModelCreator
 
-
-
-####Load whatver you need
-
+#### Load whatver you need
 
 conda activate abr_genomes
 import xgboost as xgb
@@ -18,39 +15,39 @@ import numpy as np
 import os
 import shap
 
-###I usually verify the directory, but it isnt strictly necessary ! Change as needed
+### I usually verify the directory, but it isnt strictly necessary ! Change as needed
 
 current_directory = os.getcwd()
 print(current_directory)
 os.chdir('OneDrive - University of Illinois Chicago/Desktop/lab_materials/WSL')
 
-###upload data and verify
-###optionally, you can change these to represent single antibiotic tables, up to u
-###You will nead to read a feather or database if you used those instead of csvs
-###This step will take a really long time if you're using like, 10mers or above
+### upload data and verify
+### optionally, you can change these to represent single antibiotic tables, up to u
+### You will nead to read a feather or database if you used those instead of csvs
+### This step will take a really long time if you're using like, 10mers or above
 
 data = pd.read_csv('kmc_outputs/km_final.csv')
 print(data.head())
 data = data.drop('genome', axis = 1)
 
-###split data for training
-###IMPORTANT: I label my y variable as "label" but if you use a different name be sure to change that here!!!
+### split data for training
+### IMPORTANT: I label my y variable as "label" but if you use a different name be sure to change that here!!!
 
 X = data.drop(columns=["label"])
 y = data['label']
 
-###I like to make sure it looks okay - make sure "label" column is not in X, that's probably the most likely error
+### I like to make sure it looks okay - make sure "label" column is not in X, that's probably the most likely error
 X.head()
 y.head()
 print("\nNumber of samples:", len(X))
 print("Number of features:", X.shape[1])
 
 
-###This is the part where we actually split the data and build the model
-###MAKE SURE YOU CHANGE NAMES TO FIT YOUR DATA
-###If you use 12mers like I did, this part til the end will take a really long time, even with an HPC. Like overnight probably.
+### This is the part where we actually split the data and build the model
+### MAKE SURE YOU CHANGE NAMES TO FIT YOUR DATA
+### If you use 12mers like I did, this part til the end will take a really long time, even with an HPC. Like overnight probably.
 
-
+### Adjust model parameters here as you desire. These are designed for our regressor model on numeric data, which may not be what you have!!!
 parameters = {
     'objective': 'reg:squarederror',
     'booster': 'gbtree',
@@ -61,12 +58,12 @@ parameters = {
     'eval_metric': 'rmse'
 }
 
-###THis will actually split the data, you can use however many folds you prefer
-###I set random state to my birthday, but literally do whatever you want!
+### This will actually split the data, you can use however many folds you prefer
+### I set random state to my birthday, but literally do whatever you want!
 kf = KFold(n_splits=10, shuffle=True, random_state=101294)
 
-###And then this is where we actually establish our empty list variables. I would keep all these, they are all important model metrics.
-###That said you can call them whatever you want !!
+### And then this is where we actually establish our empty list variables. I would keep all these, they are all important model metrics.
+### That said you can call them whatever you want !!
 
 w1_scores = []
 rmse_scores = []
@@ -77,22 +74,23 @@ fold_results = []
 all_shap_values = []
 all_X_test = []
 
-###And now we are off. This for loop will roll through all 10 folds, again pay attention to naming.
+### And now we are off. This for loop will roll through all 10 folds, again pay attention to naming.
 
 for fold, (train_index, test_index) in enumerate(kf.split(X, y), start=1):
     print(f"\n{'=' * 60}")
     print(f"Fold {fold}/10")
     print(f"{'=' * 60}")
-
+### Determining our train and test datasets from the folds we made
     X_train_full = X.iloc[train_index].copy()
     X_test = X.iloc[test_index].copy()
 
     y_train_full = y.iloc[train_index].copy()
     y_test = y.iloc[test_index].copy()
-
+### Printing these for my own peace of mind
     print("Training samples:", len(X_train_full))
     print("Test samples:", len(X_test))
-
+### Here we are setting aside our data for validation! 
+### IMPORTANT set a random seed that you remember, again I use my bday
     X_train, X_val, y_train, y_val = train_test_split(
         X_train_full,
         y_train_full,
@@ -101,12 +99,13 @@ for fold, (train_index, test_index) in enumerate(kf.split(X, y), start=1):
         random_state=101294 + fold
     )
 
-
+### now we can store data, features, and labels as dtrain variable
+### IF YOU RENAME THESE you will need to adjust the rest of your code
 
     dtrain = xgb.DMatrix(X_train,label=y_train)
     dval = xgb.DMatrix(X_val,label=y_val)
     dtest = xgb.DMatrix(X_test,label=y_test)
-
+### This is where the model trains, using the parameters we already set. I set stopping rounds to 25 to avoid overfitting, but adjust as you please
     model = xgb.train(
         params=parameters,
         dtrain=dtrain,
@@ -118,18 +117,20 @@ for fold, (train_index, test_index) in enumerate(kf.split(X, y), start=1):
         early_stopping_rounds=25,
         verbose_eval=False
     )
-
+### This will extract the best iteration from above, and append it to the correct list variable!
     best_iter = model.best_iteration
     best_iterations.append(best_iter)
     print("Best iteration:", best_iter)
 
-
+### Here we establish the y test array to generate model metrics vs actual values,,,
+### eps variable is so that zero values don't mess up the rmse predictions
+### VERY IMPORTANT: My label (y) data is normalized to log2. If yours is not, you will need to change the within_2fold calculation!!!!
     preds = model.predict(dtest,iteration_range=(0, best_iter + 1))
     y_test_array = y_test.to_numpy()
     eps = 1e-8
     within_2fold = np.abs(preds - y_test_array) <= 1
     percentage_2fold = np.mean(within_2fold) * 100
-
+### Here we are just appending all this data so it can later be 
     rmse = np.sqrt(mean_squared_error(y_test_array,preds))
     mae = mean_absolute_error(y_test_array,preds)
     r2 = r2_score(y_test_array,preds)
@@ -150,7 +151,9 @@ for fold, (train_index, test_index) in enumerate(kf.split(X, y), start=1):
     print(f"RMSE: {rmse:.4f}")
     print(f"MAE: {mae:.4f}")
     print(f"R²: {r2:.4f}")
-
+### Printing them
+### This is where we generate our feature importance table! I would recommend looking up SHAP values, not enough space here to explain
+### But basically this will tell us which features are impacting the model most, and in what direction
     explainer = shap.TreeExplainer(model)
 
     shap_values_fold = explainer.shap_values(X_test)
@@ -158,7 +161,7 @@ for fold, (train_index, test_index) in enumerate(kf.split(X, y), start=1):
     all_shap_values.append(shap_values_fold)
 
     all_X_test.append(X_test)
-
+### Again just printing all of these values by fold !
 print("\n")
 print("=" * 60)
 print("OVERALL 10-FOLD CROSS-VALIDATION RESULTS")
@@ -174,7 +177,10 @@ print(f"R²: "f"{np.mean(r2_scores):.4f} "f"± {np.std(r2_scores):.4f}")
 
 print(f"Best iteration: "f"{np.mean(best_iterations):.1f} "f"± {np.std(best_iterations):.1f}")
 
-
+### IMPORTANT
+### I'LL SAY IT AGAIN: IMPORTANT
+### IF you are using different models for different antibiotics, you will want to make sure that you change this directory name
+### OTHERWISE you will overwrite the folder every time you try new datasets
 
 os.makedirs("shap_results",exist_ok=True)
 
@@ -182,7 +188,7 @@ os.makedirs("shap_results",exist_ok=True)
 fold_results_df = pd.DataFrame(fold_results)
 fold_results_df.to_csv("shap_results/fold_metrics.csv",index=False)
 
-
+### I export these to CSVs so that I can manipulate the data in R and make figures for publication
 
 all_shap_values = np.vstack(all_shap_values)
 all_X_test = pd.concat(all_X_test,axis=0)
@@ -193,7 +199,7 @@ top_positive = mean_shap.head(20)
 top_negative = mean_shap.tail(20)
 top_features = mean_abs_shap.head(20)
 
-###IMPORTANT: If you are using multiple dataframe inputs, be sure to adjust the output folders here!!!!! So that it doesn't overwrite your old data
+###IMPORTANT AGAIN: If you are using multiple dataframe inputs, be sure to adjust the output folders here!!!!! So that it doesn't overwrite your old data
 shap_df.to_csv("shap_results/shap_values.csv",index=True)
 
 
@@ -215,7 +221,7 @@ shap_importance_df.to_csv(
     index=False
 )
 
-
+### And then just printing all this stuff
 
 print("\n")
 print("=" * 60)
